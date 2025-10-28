@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, CircleMarker } from 'react-leaflet';
-import { LatLngExpression, Icon as LeafletIcon, divIcon } from 'leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { LatLngExpression, divIcon } from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
 import 'leaflet/dist/leaflet.css';
-import { renderToString } from 'react-dom/server';
 
 interface Vehicle {
   id: number;
@@ -24,41 +23,28 @@ interface TrafficSegment {
   level: 'low' | 'medium' | 'high' | 'severe';
 }
 
-function LocationMarker({ position, onLocationFound }: { position: LatLngExpression | null; onLocationFound: (pos: LatLngExpression) => void }) {
+function LocationMarker({ position }: { position: LatLngExpression }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!position) {
-      map.locate({ watch: true, enableHighAccuracy: true });
+    if (position) {
+      map.flyTo(position, 13, { duration: 1 });
     }
-
-    const onLocationFound = (e: any) => {
-      const newPos: LatLngExpression = [e.latlng.lat, e.latlng.lng];
-      map.flyTo(newPos, 13, { duration: 1 });
-      onLocationFound(newPos);
-    };
-
-    map.on('locationfound', onLocationFound);
-    return () => {
-      map.off('locationfound', onLocationFound);
-    };
-  }, [map, position, onLocationFound]);
-
-  if (!position) return null;
+  }, [map, position]);
 
   const userIcon = divIcon({
     className: 'custom-user-marker',
-    html: renderToString(
-      <div className="relative">
-        <div className="absolute inset-0 bg-blue-500 rounded-full opacity-25 animate-ping w-10 h-10 -translate-x-1/2 -translate-y-1/2"></div>
-        <div className="relative bg-blue-500 rounded-full p-2 shadow-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    html: `
+      <div style="position: relative;">
+        <div style="position: absolute; inset: 0; background: #3B82F6; border-radius: 50%; opacity: 0.25; animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; width: 40px; height: 40px; transform: translate(-50%, -50%);"></div>
+        <div style="position: relative; background: #3B82F6; border-radius: 50%; padding: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
         </div>
       </div>
-    ),
+    `,
     iconSize: [40, 40],
     iconAnchor: [20, 40],
   });
@@ -71,59 +57,31 @@ export default function MapView() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [trafficSegments, setTrafficSegments] = useState<TrafficSegment[]>([]);
-  const [locationPermission, setLocationPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
 
   useEffect(() => {
-    const requestLocation = async () => {
-      if ('geolocation' in navigator) {
-        try {
-          const permission = await navigator.permissions.query({ name: 'geolocation' });
-          setLocationPermission(permission.state as any);
-          
-          permission.addEventListener('change', () => {
-            setLocationPermission(permission.state as any);
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const pos: LatLngExpression = [position.coords.latitude, position.coords.longitude];
+          setUserLocation(pos);
+          toast({
+            title: 'Геолокация активирована',
+            description: 'Ваше местоположение определено точно',
           });
-
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const pos: LatLngExpression = [position.coords.latitude, position.coords.longitude];
-              setUserLocation(pos);
-              setLocationPermission('granted');
-              toast({
-                title: 'Геолокация активирована',
-                description: 'Ваше местоположение определено точно',
-              });
-            },
-            (error) => {
-              setUserLocation([55.7558, 37.6173]);
-              setLocationPermission('denied');
-              toast({
-                title: 'Доступ к геолокации запрещен',
-                description: 'Используется местоположение по умолчанию',
-                variant: 'destructive',
-              });
-            },
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-          );
-        } catch (error) {
+        },
+        () => {
           setUserLocation([55.7558, 37.6173]);
           toast({
-            title: 'Ошибка геолокации',
-            description: 'Не удалось определить местоположение',
+            title: 'Доступ к геолокации запрещен',
+            description: 'Используется местоположение по умолчанию',
             variant: 'destructive',
           });
-        }
-      } else {
-        setUserLocation([55.7558, 37.6173]);
-        toast({
-          title: 'Геолокация недоступна',
-          description: 'Ваш браузер не поддерживает геолокацию',
-          variant: 'destructive',
-        });
-      }
-    };
-
-    requestLocation();
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    } else {
+      setUserLocation([55.7558, 37.6173]);
+    }
   }, []);
 
   useEffect(() => {
@@ -188,15 +146,15 @@ export default function MapView() {
 
     return divIcon({
       className: 'custom-vehicle-marker',
-      html: renderToString(
-        <div className="relative group">
-          <div style={{ backgroundColor: getColor() }} className="rounded-full p-1.5 shadow-lg animate-pulse-marker">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeLinecap="round" strokeLinejoin="round">
-              <g dangerouslySetInnerHTML={{ __html: getIconPath() }} />
+      html: `
+        <div style="position: relative;">
+          <div style="background: ${getColor()}; border-radius: 50%; padding: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round">
+              ${getIconPath()}
             </svg>
           </div>
         </div>
-      ),
+      `,
       iconSize: [32, 32],
       iconAnchor: [16, 16],
     });
@@ -220,10 +178,6 @@ export default function MapView() {
       default: return 'Неизвестно';
     }
   };
-
-  const handleLocationFound = useCallback((pos: LatLngExpression) => {
-    setUserLocation(pos);
-  }, []);
 
   if (!userLocation) {
     return (
@@ -270,7 +224,7 @@ export default function MapView() {
           />
         ))}
 
-        <LocationMarker position={userLocation} onLocationFound={handleLocationFound} />
+        <LocationMarker position={userLocation} />
 
         {vehicles.map((vehicle) => (
           <Marker
